@@ -1,1 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verdians: Eco Rangers - Dynamic Cleanup</title>
+    <!-- Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Custom Tailwind configuration for the game's theme
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'verdian-primary': '#10b981', // Emerald 500
+                        'verdian-secondary': '#065f46',  // Emerald 800
+                        'verdian-bg': '#0f172a', // Slate 900 for a darker theme
+                        'verdian-light': '#f0fff4', 
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom styles for grid, screen management, and buttons */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d121f; /* Even darker background */
+        }
+        #app-container {
+            /* Ensures the container has space and is the positioning context */
+            min-height: 90vh;
+        }
+        
+        /* === FIX: SPA Screen Management using flow control (display: none/flex) === */
+        .screen {
+            display: none; /* Inactive screens are hidden */
+            width: 100%;
+            padding: 20px;
+            box-sizing: border-box;
+            transition: opacity 0.4s ease-in-out;
+            min-height: 85vh; /* Ensures screens occupy enough vertical space */
+        }
+        .screen.active {
+            display: flex; /* Active screen is shown */
+            opacity: 1;
+            /* Flex properties for menu centering */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Hero Button Styling for Menus */
+        .menu-btn {
+            @apply w-64 py-4 mb-4 text-xl font-bold text-white uppercase tracking-wider rounded-xl shadow-lg transition duration-200 transform hover:scale-[1.03] hover:shadow-xl;
+            background-image: linear-gradient(135deg, #10b981, #065f46);
+            border: 2px solid #34d399;
+        }
+        .menu-btn:hover {
+            box-shadow: 0 0 15px rgba(52, 211, 153, 0.8);
+        }
+        .menu-btn:disabled {
+            @apply opacity-30 cursor-not-allowed shadow-none transform-none;
+            background-image: none;
+            background-color: #64748b; /* Slate 500 */
+            border: 2px solid #475569;
+        }
+        
+        /* Game Screen specific layout */
+        #game-screen.screen.active {
+            justify-content: flex-start; /* Reset for game content */
+            align-items: stretch;
+        }
+
+        /* Grid setup for the 5x5 puzzle */
+        #tile-grid {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-rows: repeat(5, minmax(0, 1fr));
+            gap: 4px;
+            aspect-ratio: 1 / 1; 
+        }
+        
+        .tile {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.2s;
+            @apply shadow-md rounded-md;
+        }
+
+        /* Specific Tile Colors/Themes */
+        .trash-1 { background-color: #f87171; color: white; } /* T1: Plastic (Red) 🥤*/
+        .trash-2 { background-color: #a78bfa; color: white; } /* T2: Paper (Purple) 📰*/
+        .trash-3 { background-color: #fcd34d; color: #1e293b; } /* T3: Cans (Yellow) 🥫*/
+        .trash-4 { background-color: #9ca3af; color: white; } /* T4: Glass (Gray) 🥃*/
+        .green-tile { 
+            background-color: #34d399; 
+            color: #065f46;
+            font-weight: 700;
+        } 
+        
+        /* Puzzle Modal Overlay */
+        #puzzle-modal {
+            display: none; 
+            position: fixed; /* Modal must be fixed/absolute to overlay everything */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(6, 95, 70, 0.95); 
+            backdrop-filter: blur(4px);
+            z-index: 50;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Main Application Container -->
+    <div id="app-container" class="relative max-w-4xl mx-auto shadow-2xl rounded-xl bg-verdian-bg p-6 md:p-10 my-8">
+        
+        <!-- === 0. Title Screen === -->
+        <section id="title-screen" class="screen active text-center">
+            <h1 class="text-7xl font-extrabold text-verdian-primary mb-4 tracking-tight animate-pulse">VERDIANS</h1>
+            <h2 class="text-3xl italic text-verdian-light mb-12">Eco Rangers</h2>
+            <p class="text-white text-lg mb-8">Click to start your mission.</p>
+            <button id="goto-main-menu-btn" class="py-3 px-10 bg-verdian-primary hover:bg-verdian-secondary text-white font-bold text-2xl rounded-lg shadow-xl transition duration-150 transform hover:scale-105">
+                START
+            </button>
+        </section>
+
+        <!-- === 1. Main Menu Screen === -->
+        <section id="main-menu-screen" class="screen">
+            <h1 class="text-5xl font-extrabold text-verdian-primary mb-12 tracking-wider">MAIN MENU</h1>
+            <button id="main-menu-play" class="menu-btn" data-target="play">Play</button>
+            <button id="main-menu-settings" class="menu-btn" data-target="settings">Settings</button>
+            <button id="main-menu-about" class="menu-btn" data-target="about">About</button>
+            <button id="main-menu-exit" class="menu-btn bg-red-600 hover:bg-red-800" data-target="exit">Exit Game</button>
+        </section>
+        
+        <!-- === 1.1 Play Sub-Menu === -->
+        <section id="play-menu-screen" class="screen">
+            <h1 class="text-5xl font-extrabold text-verdian-primary mb-12 tracking-wider">SELECT MISSION</h1>
+            
+            <div class="w-full max-w-sm flex flex-col items-center">
+                <p id="load-info" class="text-verdian-light mb-4 text-center"></p>
+                <button id="continue-game-btn" class="menu-btn">Continue Game</button>
+                <button id="new-game-btn" class="menu-btn">New Game</button>
+                <button class="menu-btn bg-gray-500 hover:bg-gray-700" data-target="back-to-main">Back</button>
+            </div>
+        </section>
+
+        <!-- === 1.2 Settings Sub-Menu === -->
+        <section id="settings-menu-screen" class="screen">
+            <h1 class="text-5xl font-extrabold text-verdian-primary mb-12 tracking-wider">SETTINGS</h1>
+            
+            <div class="w-full max-w-sm flex flex-col items-center">
+                <button id="reset-game-data-btn" class="menu-btn bg-red-600 hover:bg-red-800">
+                    <span class="text-lg font-bold">⚠️ Reset Game Data ⚠️</span>
+                </button>
+                <p class="text-red-300 text-sm mb-8">This action cannot be undone and will delete all progress.</p>
+                <button class="menu-btn bg-gray-500 hover:bg-gray-700" data-target="back-to-main">Back</button>
+            </div>
+        </section>
+
+        <!-- === 1.3 About Screen (Simple placeholder) === -->
+        <section id="about-screen" class="screen">
+            <h1 class="text-5xl font-extrabold text-verdian-primary mb-8 tracking-wider">ABOUT VERDIANS</h1>
+            <p class="text-xl text-verdian-light mb-4 text-center max-w-lg">
+                **Verdians: Eco Rangers** is a prototype SPA game built to educate players on environmental cleanup and biodiversity through engaging puzzle mechanics.
+            </p>
+            <p class="text-verdian-light mb-12">Project by: Ranger Gemini</p>
+            <button class="menu-btn bg-gray-500 hover:bg-gray-700" data-target="back-to-main">Back</button>
+        </section>
+
+        <!-- === 2. Story/Intro Screen (Triggered by New Game) === -->
+        <section id="story-screen" class="screen justify-between p-4">
+            <div>
+                <h2 class="text-4xl font-bold text-verdian-primary mb-6 text-center">The Call of the Green</h2>
+                <div id="story-text" class="text-lg text-verdian-light leading-relaxed text-left bg-verdian-secondary/50 p-6 rounded-xl shadow-md border-l-4 border-verdian-primary max-w-2xl mx-auto">
+                    <!-- Story content is inserted here by JS -->
+                </div>
+            </div>
+            <button id="start-gameplay-btn" class="mt-8 mx-auto py-3 px-8 bg-verdian-primary hover:bg-verdian-secondary text-white font-bold text-xl rounded-lg shadow-xl transition duration-150">
+                Proceed to Map
+            </button>
+        </section>
+
+        <!-- === 3. Game/Gameplay Screen (The Main SPA) === -->
+        <section id="game-screen" class="screen flex-col justify-start items-stretch">
+            <!-- Header/Status Bar -->
+            <header id="game-header" class="flex justify-between items-center pb-4 mb-4 border-b border-verdian-primary">
+                <span id="player-status" class="text-lg font-semibold text-verdian-primary"></span>
+                <div class="space-x-3">
+                    <button id="save-btn" class="py-1 px-3 bg-gray-600 hover:bg-gray-700 text-white text-sm rounded-full transition duration-150">
+                        💾 Save
+                    </button>
+                    <button id="quit-to-menu-btn" class="py-1 px-3 bg-red-600 hover:bg-red-700 text-white text-sm rounded-full transition duration-150">
+                        Exit
+                    </button>
+                </div>
+            </header>
+            
+            <!-- Map Exploration Area -->
+            <div id="game-map" class="flex-grow p-4 bg-verdian-secondary/30 rounded-lg shadow-inner overflow-y-auto">
+                <h3 class="text-2xl font-bold text-verdian-primary mb-4 border-b pb-2">Verdians Map: Sector 1</h3>
+                <p class="text-verdian-light mb-6">Locate and address the zones of pollution. Click a zone to start a mission.</p>
+                
+                <!-- Action Zones - Now all unlocked and dynamically styled by JS -->
+                <div id="puzzle-zone-1" class="map-zone" data-puzzle="trash">
+                    <!-- Content managed by JS -->
+                </div>
+                <div id="puzzle-zone-2" class="map-zone" data-puzzle="sorting">
+                    <!-- Content managed by JS -->
+                </div>
+                <div id="puzzle-zone-3" class="map-zone" data-puzzle="bioremediation">
+                    <!-- Content managed by JS -->
+                </div>
+            </div>
+            
+        </section>
+
+        <!-- === Puzzle Modal (Overlay) === -->
+        <div id="puzzle-modal" class="fixed inset-0 flex justify-center items-center p-4">
+            <div id="puzzle-container" class="bg-verdian-bg rounded-xl p-6 md:p-8 max-w-xl w-full shadow-2xl transform transition-all duration-300 border-2 border-verdian-primary">
+                <h3 id="puzzle-title" class="text-3xl font-bold text-verdian-primary text-center mb-4">Mission Title</h3>
+                
+                <!-- Status Indicators - Simplified -->
+                <div class="flex justify-center text-lg font-medium mb-4 p-2 bg-verdian-secondary/50 rounded-lg text-verdian-light">
+                    <span>Items Cleared: <span id="goal-count" class="text-verdian-primary font-extrabold"></span></span>
+                </div>
+                
+                <!-- Tile Grid -->
+                <div id="tile-grid" class="mx-auto max-w-sm shadow-xl rounded-md overflow-hidden bg-gray-900 p-2">
+                    <!-- Tiles injected here -->
+                </div>
+
+                <button id="close-puzzle-btn" class="w-full mt-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition duration-150">
+                    Exit Puzzle (Abandon Mission)
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+<script>
+    // --- Game State & Configuration ---
+    const GRID_SIZE = 5;
+    const REFILL_THRESHOLD_PERCENT = 0.7; // 70% of tiles green triggers refill (17 tiles for 5x5)
+
+    // Mission Configuration: Defines base difficulty and goal type
+    const MISSIONS = {
+        'puzzle-zone-1': {
+            name: 'Trash Heap Cleanup',
+            baseGoal: 40, 
+            xpReward: 100,
+            goalType: 'any_trash', 
+            emoji: '🚨'
+        },
+        'puzzle-zone-2': {
+            name: 'Waste Sorting Challenge',
+            baseGoal: 30, 
+            xpReward: 150,
+            goalType: 'target_trash', 
+            emoji: '🧪'
+        },
+        'puzzle-zone-3': {
+            name: 'Bioremediation Tank',
+            baseGoal: 50,
+            xpReward: 200,
+            goalType: 'any_trash',
+            emoji: '🔬'
+        }
+    };
+    
+    // T1=Plastic (🥤), T2=Paper (📰), T3=Cans (🥫), T4=Glass (🥃)
+    const TRASH_TYPES = [
+        { name: 'T1', emoji: '🥤' }, 
+        { name: 'T2', emoji: '📰' }, 
+        { name: 'T3', emoji: '🥫' }, 
+        { name: 'T4', emoji: '🥃' }
+    ];
+
+    let gameData = {
+        playerName: 'New Ranger',
+        level: 1,
+        xp: 0,
+        ecoTokens: 10,
+        currentScreen: 'title-screen',
+        isPuzzleActive: false,
+        completedZones: { 
+            'puzzle-zone-1': 0,
+            'puzzle-zone-2': 0,
+            'puzzle-zone-3': 0 
+        }
+    };
+
+    let currentPuzzleState = {
+        type: null,
+        zoneId: null,
+        grid: [],
+        goal: 0,
+        clearedCount: 0, 
+        selectedTiles: []
+    };
+    
+    const initialStory = `
+        <p class="mb-4">The air is thick with the stench of decay. The central database has assigned you, Ranger <b>[PLAYER_NAME]</b>, to initiate the clean-up.</p>
+        <p class="mb-4">Use the **Tile-Swapper** to match three or more trash pieces. Clearing trash instantly allows new **Greenery** ($\text{🌱}$) to take root. When the board is mostly clear, a **Mass Refill Protocol** will activate, dropping in new challenges.</p>
+        <p class="font-bold text-verdian-primary">Restore the Green. Achieve your mission goals.</p>
+    `;
+
+
+    // --- DOM Element References ---
+    const screens = {
+        title: document.getElementById('title-screen'),
+        main: document.getElementById('main-menu-screen'),
+        play: document.getElementById('play-menu-screen'),
+        settings: document.getElementById('settings-menu-screen'),
+        about: document.getElementById('about-screen'),
+        story: document.getElementById('story-screen'),
+        game: document.getElementById('game-screen')
+    };
+    const playerStatusEl = document.getElementById('player-status');
+    const puzzleModal = document.getElementById('puzzle-modal');
+    const tileGridEl = document.getElementById('tile-grid');
+    const goalCountEl = document.getElementById('goal-count');
+    const puzzleTitleEl = document.getElementById('puzzle-title');
+    const quitToMenuBtn = document.getElementById('quit-to-menu-btn');
+    const storyTextEl = document.getElementById('story-text');
+    const loadInfoEl = document.getElementById('load-info');
+    const closePuzzleBtn = document.getElementById('close-puzzle-btn');
+
+    const saveButton = document.getElementById('save-btn');
+    
+    const mapZone1 = document.getElementById('puzzle-zone-1');
+    const mapZone2 = document.getElementById('puzzle-zone-2');
+    const mapZone3 = document.getElementById('puzzle-zone-3');
+
+
+    // --- SPA Navigation & Utilities ---
+    function displayScreen(screenId) {
+        Object.values(screens).forEach(screen => {
+            if (screen) screen.classList.remove('active');
+        });
+        const targetScreen = document.getElementById(screenId);
+        if (targetScreen) {
+            targetScreen.classList.add('active');
+            gameData.currentScreen = screenId;
+        }
+    }
+    
+    function showMainMenu() { 
+        loadGame(); 
+        displayScreen('main-menu-screen'); 
+    }
+    function showGameScreen() { 
+        updateGameStatus(); 
+        displayScreen('game-screen'); 
+    }
+    
+    function showTemporaryMessage(message, color) {
+        // Simple non-blocking message utility
+        const msgEl = document.createElement('div');
+        const safeColor = color.replace(/-500|-600/g, ''); 
+        msgEl.textContent = message;
+        msgEl.className = `fixed top-4 right-4 p-4 rounded-lg shadow-xl text-white font-bold transition-opacity duration-300 z-[1000] bg-${safeColor}-600`;
+        document.body.appendChild(msgEl);
+        
+        setTimeout(() => {
+            msgEl.style.opacity = '0';
+            setTimeout(() => msgEl.remove(), 300);
+        }, 2000);
+    }
+
+    function showCustomModal(title, message, onConfirm) {
+        // Custom modal to replace window.confirm
+        if (document.getElementById('custom-confirm-modal')) return;
+
+        const modalHtml = `
+            <div id="custom-confirm-modal" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-70 z-[2000]">
+                <div class="bg-verdian-bg p-8 rounded-xl shadow-2xl max-w-sm w-full text-center border border-verdian-primary">
+                    <h4 class="text-2xl font-bold text-red-500 mb-4">${title}</h4>
+                    <p class="text-verdian-light mb-6">${message}</p>
+                    <div class="flex justify-around space-x-4">
+                        <button id="modal-confirm" class="py-2 px-4 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition duration-150">Confirm</button>
+                        <button id="modal-cancel" class="py-2 px-4 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition duration-150">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        const modal = document.getElementById('custom-confirm-modal');
+        document.getElementById('modal-confirm').addEventListener('click', () => {
+            onConfirm();
+            modal.remove();
+        });
+        document.getElementById('modal-cancel').addEventListener('click', () => {
+            modal.remove();
+        });
+    }
+
+    // --- Local Storage & Game Data ---
+    function loadGame() {
+        let hasSave = false;
+        try {
+            const savedData = localStorage.getItem('verdiansData');
+            if (savedData) {
+                const loadedData = JSON.parse(savedData);
+                if (loadedData.playerName) {
+                    gameData = { ...gameData, ...loadedData };
+                    ['puzzle-zone-1', 'puzzle-zone-2', 'puzzle-zone-3'].forEach(zone => {
+                        const savedValue = loadedData.completedZones?.[zone];
+                        if (typeof savedValue !== 'number') {
+                            gameData.completedZones[zone] = 0;
+                        }
+                    });
+                    hasSave = true;
+                    loadInfoEl.textContent = `Ranger ${gameData.playerName}'s last save loaded.`;
+                }
+            }
+        } catch (e) {
+            console.error("Could not load game data:", e);
+        }
+        
+        document.getElementById('continue-game-btn').disabled = !hasSave;
+        document.getElementById('continue-game-btn').classList.toggle('opacity-30', !hasSave);
+        document.getElementById('continue-game-btn').classList.toggle('cursor-not-allowed', !hasSave);
+        
+        updateGameStatus();
+        return hasSave;
+    }
+
+    function saveGame() {
+        try {
+            localStorage.setItem('verdiansData', JSON.stringify(gameData));
+            showTemporaryMessage("Game Saved Successfully! 🌱", 'verdian-primary');
+        } catch (e) {
+             showTemporaryMessage("Error saving game. Check console.", 'red');
+        }
+    }
+    
+    function startNewGame() {
+        gameData = {
+            playerName: 'New Ranger',
+            level: 1,
+            xp: 0,
+            ecoTokens: 10,
+            currentScreen: 'story-screen',
+            isPuzzleActive: false,
+            completedZones: { 'puzzle-zone-1': 0, 'puzzle-zone-2': 0, 'puzzle-zone-3': 0 }
+        };
+        
+        const newName = prompt("Enter your new Ranger name:", "Ranger Nova");
+        gameData.playerName = newName || 'Ranger Alpha';
+        
+        storyTextEl.innerHTML = initialStory.replace('[PLAYER_NAME]', `<b>${gameData.playerName}</b>`);
+        
+        saveGame();
+        displayScreen('story-screen');
+    }
+
+    function updateZoneStatus(zoneId, element) {
+        const mission = MISSIONS[zoneId];
+        const replayCount = gameData.completedZones[zoneId];
+        // Goal increases by 5 items per replay
+        const nextGoal = Math.round(mission.baseGoal + (replayCount * 5)); 
+        const isCompleted = replayCount > 0;
+        
+        let completionText;
+        if (isCompleted) {
+            completionText = `<span class="font-bold text-verdian-primary">✅ ${mission.name} Cleared ${replayCount} time(s)!</span> Next Target: ${nextGoal} items.`;
+            element.className = "map-zone bg-verdian-secondary/70 border-l-4 border-verdian-primary text-verdian-light p-4 rounded-lg shadow-sm cursor-pointer mb-3 transition duration-200 hover:bg-verdian-secondary/90";
+        } else {
+            completionText = `<span class="font-bold">${mission.emoji} ${mission.name}:</span> Target: ${nextGoal} items to clear.`;
+            element.className = "map-zone bg-red-800/50 hover:bg-red-700/70 border-l-4 border-red-500 text-red-100 p-4 rounded-lg shadow-sm cursor-pointer mb-3 transition duration-200";
+        }
+        
+        element.innerHTML = completionText;
+    }
+
+    function updateGameStatus() {
+        playerStatusEl.innerHTML = `
+            <span class="mr-3">Ranger: ${gameData.playerName}</span>
+            <span class="mr-3 text-verdian-primary">Lvl: ${gameData.level}</span>
+            <span class="mr-3 text-yellow-400">XP: ${gameData.xp}</span>
+            <span class="mr-3 text-blue-400">Tokens: ${gameData.ecoTokens}</span>
+        `;
+        updateZoneStatus('puzzle-zone-1', mapZone1);
+        updateZoneStatus('puzzle-zone-2', mapZone2);
+        updateZoneStatus('puzzle-zone-3', mapZone3);
+    }
+
+    // --- Puzzle Mechanics ---
+
+    function createRandomTile(index) {
+        const typeIndex = Math.floor(Math.random() * TRASH_TYPES.length);
+        const type = TRASH_TYPES[typeIndex].name;
+        return { 
+            id: crypto.randomUUID(), 
+            type: type, 
+            originalType: type, 
+            emoji: TRASH_TYPES[typeIndex].emoji,
+            isGreen: false, 
+            class: `trash-${typeIndex + 1}`,
+            index: index
+        };
+    }
+
+    function createInitialGrid() {
+        const grid = [];
+        for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+            grid.push(createRandomTile(i));
+        }
+        return grid;
+    }
+
+    function renderTileGrid() {
+        tileGridEl.innerHTML = '';
+        currentPuzzleState.grid.forEach((tile, index) => {
+            const tileEl = document.createElement('div');
+            tileEl.classList.add('tile', tile.class);
+            tileEl.textContent = tile.emoji;
+            tileEl.dataset.id = tile.id;
+            tileEl.dataset.index = index;
+            tileEl.addEventListener('click', handleTileClick);
+            
+            // Highlight selected tiles
+            if (currentPuzzleState.selectedTiles.includes(index)) {
+                tileEl.classList.add('ring-4', 'ring-offset-2', 'ring-yellow-400', 'ring-offset-verdian-bg');
+            }
+
+            tileGridEl.appendChild(tileEl);
+        });
+        
+        // Goal Display: Show cumulative cleared items
+        goalCountEl.textContent = `${currentPuzzleState.clearedCount} / ${currentPuzzleState.goal}`;
+        
+        // Check for win condition
+        if (currentPuzzleState.clearedCount >= currentPuzzleState.goal) {
+            endPuzzle(true);
+        }
+    }
+
+    function areAdjacent(index1, index2) {
+        const r1 = Math.floor(index1 / GRID_SIZE);
+        const c1 = index1 % GRID_SIZE;
+        const r2 = Math.floor(index2 / GRID_SIZE);
+        const c2 = index2 % GRID_SIZE;
+
+        const rowDiff = Math.abs(r1 - r2);
+        const colDiff = Math.abs(c1 - c2);
+
+        return (rowDiff === 1 && colDiff === 0) || (rowDiff === 0 && colDiff === 1);
+    }
+    
+    async function handleTileClick(event) {
+        if (gameData.isPuzzleActive === false) return;
+
+        const clickedIndex = parseInt(event.target.dataset.index);
+        const selectedIndex = currentPuzzleState.selectedTiles.indexOf(clickedIndex);
+
+        if (selectedIndex !== -1) {
+            currentPuzzleState.selectedTiles.splice(selectedIndex, 1);
+        } else if (currentPuzzleState.selectedTiles.length < 2) {
+            currentPuzzleState.selectedTiles.push(clickedIndex);
+        }
+        
+        if (currentPuzzleState.selectedTiles.length === 2) {
+            await handleTileSwap(currentPuzzleState.selectedTiles[0], currentPuzzleState.selectedTiles[1]);
+            currentPuzzleState.selectedTiles = []; 
+        }
+        
+        renderTileGrid(); 
+    }
+
+    async function handleTileSwap(index1, index2) {
+        if (!areAdjacent(index1, index2)) {
+            showTemporaryMessage("Tiles must be adjacent to swap.", 'red');
+            return;
+        }
+
+        // Perform the swap
+        [currentPuzzleState.grid[index1], currentPuzzleState.grid[index2]] = [currentPuzzleState.grid[index2], currentPuzzleState.grid[index1]];
+        renderTileGrid(); 
+
+        // Process matches and cascades
+        await checkAndClearMatches();
+    }
+
+
+    function findMatches() {
+        let tilesToMatch = [];
+        let tempGrid = currentPuzzleState.grid.slice(); 
+
+        const getTile = (r, c) => (r >= 0 && r < GRID_SIZE && c < GRID_SIZE) ? tempGrid[r * GRID_SIZE + c] : null;
+
+        for (let r = 0; r < GRID_SIZE; r++) {
+            for (let c = 0; c < GRID_SIZE; c++) {
+                const index = r * GRID_SIZE + c;
+                const tile = tempGrid[index];
+                
+                if (tile.isGreen) continue; 
+
+                // Check Horizontal Match (3 or more)
+                if (c + 2 < GRID_SIZE && 
+                    tile.type === getTile(r, c + 1)?.type && !getTile(r, c + 1)?.isGreen && 
+                    tile.type === getTile(r, c + 2)?.type && !getTile(r, c + 2)?.isGreen) {
+                    tilesToMatch.push(index, index + 1, index + 2);
+                }
+
+                // Check Vertical Match (3 or more)
+                if (r + 2 < GRID_SIZE && 
+                    tile.type === getTile(r + 1, c)?.type && !getTile(r + 1, c)?.isGreen &&
+                    tile.type === getTile(r + 2, c)?.type && !getTile(r + 2, c)?.isGreen) {
+                    tilesToMatch.push(index, index + GRID_SIZE, index + 2 * GRID_SIZE);
+                }
+            }
+        }
+        return tilesToMatch;
+    }
+
+    function refillBoard() {
+        let refilledCount = 0;
+        currentPuzzleState.grid = currentPuzzleState.grid.map((tile, index) => {
+            if (tile.isGreen) {
+                refilledCount++;
+                return createRandomTile(index);
+            }
+            return tile;
+        });
+
+        if (refilledCount > 0) {
+            showTemporaryMessage(`Mass Refill Protocol activated: ${refilledCount} new trash items appeared!`, 'red');
+            renderTileGrid();
+        }
+    }
+
+    async function checkAndClearMatches() {
+        let matchesFound = true;
+        let totalClearedInStep = 0;
+        const mission = MISSIONS[currentPuzzleState.zoneId];
+
+        // Loop until no more matches are spontaneously created (cascades)
+        while (matchesFound) {
+            matchesFound = false;
+            const matchedIndices = findMatches();
+            
+            if (matchedIndices.length > 0) {
+                matchesFound = true;
+                const uniqueIndices = [...new Set(matchedIndices)];
+
+                uniqueIndices.forEach(index => {
+                    const tile = currentPuzzleState.grid[index];
+                    
+                    // Increment cumulative cleared count based on mission type
+                    if (!tile.isGreen) {
+                        const originalType = tile.originalType;
+                        
+                        if (mission.goalType === 'any_trash' || 
+                           (mission.goalType === 'target_trash' && (originalType === 'T1' || originalType === 'T2'))) {
+                            currentPuzzleState.clearedCount++;
+                        }
+                        
+                        // Mark the tile as green
+                        tile.isGreen = true;
+                        tile.type = 'GREEN';
+                        tile.emoji = '🌱';
+                        tile.class = 'green-tile';
+                        totalClearedInStep++;
+                    }
+                });
+                renderTileGrid();
+                
+                // Slight pause for visual feedback
+                await new Promise(resolve => setTimeout(resolve, 150));
+            }
+            
+            // Check for 70% Refill condition
+            const totalTiles = GRID_SIZE * GRID_SIZE;
+            const greenCount = currentPuzzleState.grid.filter(t => t.isGreen).length;
+            const refillThreshold = Math.floor(totalTiles * REFILL_THRESHOLD_PERCENT); 
+
+            if (greenCount >= refillThreshold) {
+                refillBoard();
+                matchesFound = true; // Force another match check after refill
+            }
+        }
+        
+        if (totalClearedInStep > 0) {
+            showTemporaryMessage(`Success! ${totalClearedInStep} tiles converted to greenery.`, 'verdian-primary');
+        }
+    }
+
+
+    function startPuzzle(zoneId, puzzleType) {
+        const mission = MISSIONS[zoneId];
+        const replayCount = gameData.completedZones[zoneId];
+        
+        // Goal increases by 5 items per replay
+        const currentGoal = Math.min(GRID_SIZE * GRID_SIZE * 5, Math.round(mission.baseGoal + (replayCount * 5))); 
+        
+        // Initialize state
+        currentPuzzleState = {
+            type: 'match3',
+            zoneId: zoneId,
+            grid: createInitialGrid(),
+            goal: currentGoal,
+            clearedCount: 0, // Reset cumulative count
+            selectedTiles: []
+        };
+        
+        puzzleTitleEl.textContent = `${mission.name} (Replay ${replayCount + 1})`;
+        
+        gameData.isPuzzleActive = true;
+        puzzleModal.style.display = 'flex';
+        renderTileGrid(); 
+    }
+
+    function endPuzzle(success) {
+        puzzleModal.style.display = 'none';
+        gameData.isPuzzleActive = false;
+        
+        const zoneId = currentPuzzleState.zoneId || 'puzzle-zone-1'; 
+        const mission = MISSIONS[zoneId];
+        const replayCount = gameData.completedZones[zoneId];
+
+        if (success) {
+            const xpEarned = mission.xpReward + (replayCount * 20); 
+            gameData.xp += xpEarned;
+            gameData.ecoTokens += 5;
+            gameData.completedZones[zoneId]++; 
+            
+            showTemporaryMessage(`MISSION COMPLETE! ${mission.name} is restored! +${xpEarned} XP!`, 'verdian-secondary');
+        } else {
+            // Only runs if mission is abandoned
+            gameData.ecoTokens = Math.max(0, gameData.ecoTokens - 2); 
+            showTemporaryMessage(`MISSION ABANDONED! -2 Tokens.`, 'red');
+        }
+        saveGame();
+        updateGameStatus();
+    }
+    
+    // --- Initial Setup and Event Listeners ---
+    document.addEventListener('DOMContentLoaded', () => {
+        
+        if (typeof prompt !== 'function') { window.prompt = (message, defaultValue) => defaultValue; }
+
+        loadGame(); 
+
+        // Event Listeners setup 
+        document.getElementById('goto-main-menu-btn').addEventListener('click', () => displayScreen('main-menu-screen'));
+        document.getElementById('main-menu-play').addEventListener('click', () => displayScreen('play-menu-screen'));
+        document.getElementById('main-menu-settings').addEventListener('click', () => displayScreen('settings-menu-screen'));
+        document.getElementById('main-menu-about').addEventListener('click', () => displayScreen('about-screen'));
+        document.getElementById('main-menu-exit').addEventListener('click', () => {
+            document.getElementById('app-container').innerHTML = `<div class="h-full w-full flex flex-col justify-center items-center text-white bg-gray-900 absolute top-0 left-0 p-8"><p class="text-3xl font-bold text-verdian-primary">Verdians Application Closed</p><p class="text-xl mt-4 text-gray-400">Thank you for being a Protector of the Green.</p></div>`;
+        });
+        document.getElementById('new-game-btn').addEventListener('click', startNewGame);
+        document.getElementById('continue-game-btn').addEventListener('click', () => loadGame() ? showGameScreen() : null);
+        document.getElementById('reset-game-data-btn').addEventListener('click', () => {
+             showCustomModal("Confirm Reset", "Are you absolutely sure you want to delete ALL game data? This cannot be undone.", () => {
+                localStorage.removeItem('verdiansData');
+                loadGame(); 
+                showMainMenu();
+                showTemporaryMessage("Game data has been permanently reset.", 'red');
+            });
+        });
+
+        document.querySelectorAll('[data-target="back-to-main"]').forEach(btn => btn.addEventListener('click', showMainMenu));
+        document.getElementById('start-gameplay-btn').addEventListener('click', showGameScreen);
+        saveButton.addEventListener('click', saveGame);
+        quitToMenuBtn.addEventListener('click', () => showCustomModal("Confirm Exit", "Do you want to save your progress before returning to the Main Menu?", () => { saveGame(); showMainMenu(); }));
+        
+        mapZone1.addEventListener('click', () => startPuzzle('puzzle-zone-1', mapZone1.dataset.puzzle));
+        mapZone2.addEventListener('click', () => startPuzzle('puzzle-zone-2', mapZone2.dataset.puzzle));
+        mapZone3.addEventListener('click', () => startPuzzle('puzzle-zone-3', mapZone3.dataset.puzzle));
+
+        closePuzzleBtn.addEventListener('click', () => showCustomModal("Confirm Exit", "Are you sure you want to abandon the mission? You will lose progress and tokens.", () => endPuzzle(false)));
+        
+        updateGameStatus();
+        
+        const initialScreen = gameData.currentScreen !== 'title-screen' && gameData.currentScreen !== 'story-screen' ? gameData.currentScreen : 'title-screen';
+        displayScreen(initialScreen);
+    });
+</script>
+
+</body>
+</html>
 
